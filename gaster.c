@@ -1312,7 +1312,7 @@ gaster_checkm8(usb_handle_t *handle) {
 				puts("Stage: PATCH");
 				ret = checkm8_stage_patch(handle);
 				stage = STAGE_RESET;
-				exit(0);2
+				exit(0);
 			}
 			if(ret) {
 				puts("ret: true");
