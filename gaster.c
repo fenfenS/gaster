@@ -435,6 +435,8 @@ send_usb_control_request(const usb_handle_t *handle, uint8_t bm_request_type, ui
 	req.wValue = OSSwapLittleToHostInt16(w_value);
 	req.wIndex = OSSwapLittleToHostInt16(w_index);
 	req.completionTimeout = req.noDataTimeout = usb_timeout;
+	printf("Calling send_usb_control_request: bm_request_type=%d, b_request=%d, w_value=%d, w_index=%d, w_length=%d\n", 
+		bm_request_type, b_request, w_value, w_index, w_len);
 	ret = (*handle->device)->DeviceRequestTO(handle->device, &req);
 	if(transfer_ret != NULL) {
 		if(ret == kIOReturnSuccess) {
@@ -461,6 +463,8 @@ send_usb_control_request_async(const usb_handle_t *handle, uint8_t bm_request_ty
 	req.wValue = OSSwapLittleToHostInt16(w_value);
 	req.wIndex = OSSwapLittleToHostInt16(w_index);
 	req.completionTimeout = req.noDataTimeout = usb_timeout;
+	printf("Calling send_usb_control_request_async: bm_request_type=%d, b_request=%d, w_value=%d, w_index=%d, w_length=%d\n", 
+		bm_request_type, b_request, w_value, w_index, w_len);
 	if((*handle->device)->DeviceRequestAsyncTO(handle->device, &req, usb_async_cb, transfer_ret) == kIOReturnSuccess) {
 		sleep_ms(usb_abort_timeout);
 		if((*handle->device)->USBDeviceAbortPipeZero(handle->device) == kIOReturnSuccess) {
